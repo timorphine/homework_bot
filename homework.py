@@ -1,8 +1,8 @@
 import logging
 import os
+import sys
 import time
 from http import HTTPStatus
-from logging.handlers import RotatingFileHandler
 
 import requests
 from dotenv import load_dotenv
@@ -13,7 +13,7 @@ load_dotenv()
 
 PRACTICUM_TOKEN = os.getenv('YATOKEN')
 TELEGRAM_TOKEN = os.getenv('TGTOKEN')
-TELEGRAM_CHAT_ID = 329170525
+TELEGRAM_CHAT_ID = os.getenv('CHAT_ID')
 
 RETRY_TIME = 600
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
@@ -27,19 +27,24 @@ HOMEWORK_STATUSES = {
 
 logging.basicConfig(
     level=logging.DEBUG,
-    format='%(asctime)s, %(levelname)s, %(message)s, %(name)s'
+    format='%(asctime)s, %(levelname)s, %(message)s, %(name)s',
+    filename='bot.log',
+    filemode='w'
 )
 logger = logging.getLogger(__name__)
-handler = RotatingFileHandler('bot.log', maxBytes=50000000, backupCount=5)
+handler = logging.StreamHandler(sys.stdout)
 logger.addHandler(handler)
 
 
 def send_message(bot, message):
     """Отправка сообщения ботом."""
-    bot.send_message(
-        TELEGRAM_CHAT_ID,
-        message
-    )
+    try:
+        bot.send_message(
+            TELEGRAM_CHAT_ID,
+            message
+        )
+    except Exception as mess_err:
+        logger.error(f'Не удалось отправить сообщение: {mess_err}')
 
 
 def get_api_answer(current_timestamp):
@@ -48,26 +53,27 @@ def get_api_answer(current_timestamp):
     params = {'from_date': timestamp}
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
-    except Exception as e:
-        logging.error(f'Ошибка "{e}" при запросе к API')
+    except requests.exceptions.RequestException as e:
+        logger.error(f'Ошибка при запросе к API: {e}')
     if response.status_code != HTTPStatus.OK:
-        logging.error(f'Проблемы с доступом: {response.status_code}')
-        raise Exception('Страница не отвечает')
+        logger.error(f'Проблемы с доступом: {response.status_code}')
+        raise Exception(f'Кажется, есть проблема: {response.status_code}')
     return response.json()
 
 
 def check_response(response):
     """Проверка корректности ответа от API."""
-    homework = response['homeworks']
-    if type(homework) is not list:
-        raise Exception('Ответ от API пришел не в виде ожидаемого списка')
-    if not homework:
-        raise Exception('Отсутствуют домашние работы за данный период')
-    if homework is None:
-        logging.error('Некорректный ответ API')
+    if not isinstance(response, dict):
+        raise TypeError('Ответ от API пришел не в виде ожидаемого словаря')
+    if response.get('homeworks') is None:
+        logger.error('Отсутствует список заданий')
+        raise Exception('Отсутствует список заданий')
+    if response.get('current_date') is None:
+        logger.error('Отсутствует значение ключа "current"')
+    if not isinstance(response.get('homeworks'), list):
+        raise TypeError('Домашка под ключом "homeworks" не в виде списка')
     else:
-        return homework
-
+        return response.get('homeworks')
 
 def parse_status(homework):
     """Извлекает статус конкретной домашней работы."""
@@ -81,30 +87,30 @@ def parse_status(homework):
 
 def check_tokens():
     """Проверка доступности переменных окружения."""
-    tokens = [TELEGRAM_CHAT_ID, PRACTICUM_TOKEN, TELEGRAM_TOKEN]
-    if None in tokens:
-        logging.critical('Отсутствует обязательная переменная окружения!')
+    if all([TELEGRAM_CHAT_ID, PRACTICUM_TOKEN, TELEGRAM_TOKEN]):
+        return True
+    else:
+        logger.critical('Отсутствует обязательная переменная окружения!')
         return False
-    return True
-
 
 def main():
     """Основная логика работы бота."""
+    check_tokens()
     bot = Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
     while True:
         try:
             response = get_api_answer(current_timestamp)
-            homework = check_response(response)
-            message = parse_status(homework)
-            if message:
-                send_message(bot, message)
-            time.sleep(RETRY_TIME)
-
+            homeworks = check_response(response)
+            if homeworks != []:
+                send_message(bot, parse_status(homeworks[0]))
+                logger.info('Статус работы отправлен')
+                current_timestamp = response['current_date']
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
-            logging.error(message)
+            logger.error(message)
             bot.send_message(TELEGRAM_CHAT_ID, message)
+        finally:
             time.sleep(RETRY_TIME)
 
 
