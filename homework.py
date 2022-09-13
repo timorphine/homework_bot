@@ -5,8 +5,11 @@ import time
 from http import HTTPStatus
 
 import requests
+import telegram
 from dotenv import load_dotenv
 from telegram import Bot
+
+import exceptions
 
 load_dotenv()
 
@@ -43,8 +46,10 @@ def send_message(bot, message):
             TELEGRAM_CHAT_ID,
             message
         )
-    except Exception as mess_err:
-        logger.error(f'Не удалось отправить сообщение: {mess_err}')
+    except telegram.error.TelegramError as mess_err:
+        raise telegram.error.TelegramError(
+            f'Не удалось отправить сообщение: {mess_err}'
+        )
 
 
 def get_api_answer(current_timestamp):
@@ -53,11 +58,17 @@ def get_api_answer(current_timestamp):
     params = {'from_date': timestamp}
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
-    except requests.exceptions.RequestException as e:
-        logger.error(f'Ошибка при запросе к API: {e}')
+    except requests.exceptions.RequestException as ex:
+        raise requests.exceptions.RequestException(
+            f'Ошибка при запросе к API: {ex}'
+        )
     if response.status_code != HTTPStatus.OK:
-        logger.error(f'Проблемы с доступом: {response.status_code}')
-        raise Exception(f'Кажется, есть проблема: {response.status_code}')
+        raise exceptions.ResponseStatusError(
+            f'Проблема с ответом API: {response.status_code}',
+            f'Причина: {response.reason}',
+            f'Текст ответа: {response.text}',
+            f'Параметры запроса: {params}'
+        )
     return response.json()
 
 
@@ -66,10 +77,9 @@ def check_response(response):
     if not isinstance(response, dict):
         raise TypeError('Ответ от API пришел не в виде ожидаемого словаря')
     if response.get('homeworks') is None:
-        logger.error('Отсутствует список заданий')
-        raise Exception('Отсутствует список заданий')
+        raise TypeError('Отсутствует список заданий')
     if response.get('current_date') is None:
-        logger.error('Отсутствует значение ключа "current"')
+        raise TypeError('Отсутствует дата')
     if not isinstance(response.get('homeworks'), list):
         raise TypeError('Домашка под ключом "homeworks" не в виде списка')
     else:
@@ -78,42 +88,55 @@ def check_response(response):
 
 def parse_status(homework):
     """Извлекает статус конкретной домашней работы."""
-    homework_name = homework['homework_name']
-    homework_status = homework['status']
+    try:
+        homework_name = homework['homework_name']
+    except KeyError:
+        raise KeyError('Отсутствует ключ "homework_name"')
+    try:
+        homework_status = homework['status']
+    except KeyError:
+        raise KeyError('Отсутствует ключ "status"')
     if homework_status not in HOMEWORK_STATUSES:
-        raise Exception('Неизвестный статус домашней работы')
+        raise exceptions.UnknownStatusError(
+            'Неизвестный статус домашней работы'
+        )
     verdict = HOMEWORK_STATUSES.get(homework_status)
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def check_tokens():
     """Проверка доступности переменных окружения."""
-    if all([TELEGRAM_CHAT_ID, PRACTICUM_TOKEN, TELEGRAM_TOKEN]):
-        return True
-    else:
-        logger.critical('Отсутствует обязательная переменная окружения!')
-        return False
+    return all([TELEGRAM_CHAT_ID, PRACTICUM_TOKEN, TELEGRAM_TOKEN])
 
 
 def main():
     """Основная логика работы бота."""
-    check_tokens()
-    bot = Bot(token=TELEGRAM_TOKEN)
-    current_timestamp = int(time.time())
-    while True:
-        try:
-            response = get_api_answer(current_timestamp)
-            homeworks = check_response(response)
-            if homeworks != []:
-                send_message(bot, parse_status(homeworks[0]))
-                logger.info('Статус работы отправлен')
-                current_timestamp = response['current_date']
-        except Exception as error:
-            message = f'Сбой в работе программы: {error}'
-            logger.error(message)
-            bot.send_message(TELEGRAM_CHAT_ID, message)
-        finally:
-            time.sleep(RETRY_TIME)
+    if check_tokens() is False:
+        logger.critical('Отсутствует обязательная переменная окружения!')
+        sys.exit('Отсутствует обязательная переменная окружения!')
+    else:
+        bot = Bot(token=TELEGRAM_TOKEN)
+        current_timestamp = int(time.time())
+        while True:
+            try:
+                response = get_api_answer(current_timestamp)
+                homeworks = check_response(response)
+                message = parse_status(homeworks[0])
+                prev_msg = ''
+                if homeworks != [] and message != prev_msg:
+                    send_message(bot, message)
+                    logger.info('Статус работы отправлен')
+                    current_timestamp = response['current_date']
+                    prev_msg = message
+            except Exception as error:
+                prev_error = ''
+                message = f'Сбой в работе программы: {error}'
+                logger.error(message)
+                if error != prev_error:
+                    bot.send_message(TELEGRAM_CHAT_ID, message)
+                    prev_error = error
+            finally:
+                time.sleep(RETRY_TIME)
 
 
 if __name__ == '__main__':
