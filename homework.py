@@ -75,6 +75,7 @@ def check_response(response):
     else:
         return response.get('homeworks')
 
+
 def parse_status(homework):
     """Извлекает статус конкретной домашней работы."""
     homework_name = homework['homework_name']
@@ -92,6 +93,7 @@ def check_tokens():
     else:
         logger.critical('Отсутствует обязательная переменная окружения!')
         return False
+
 
 def main():
     """Основная логика работы бота."""
