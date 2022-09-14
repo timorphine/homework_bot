@@ -4,3 +4,7 @@ class ResponseStatusError(Exception):
 
 class UnknownStatusError(Exception):
     pass
+
+
+class TelegramError(Exception):
+    pass
