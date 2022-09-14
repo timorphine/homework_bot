@@ -109,16 +109,14 @@ def check_tokens():
     return all([TELEGRAM_CHAT_ID, PRACTICUM_TOKEN, TELEGRAM_TOKEN])
 
 
-prev_msg = ''
-prev_error = ''
-
-
 def main():
     """Основная логика работы бота."""
     if check_tokens() is False:
         logger.critical('Отсутствует обязательная переменная окружения!')
         sys.exit('Отсутствует обязательная переменная окружения!')
     else:
+        prev_msg = ''
+        prev_error = ''
         bot = Bot(token=TELEGRAM_TOKEN)
         current_timestamp = int(time.time())
         while True:
@@ -129,7 +127,6 @@ def main():
                     logger.info('Новые работы отсутствуют')
                 else:
                     message = parse_status(homeworks[0])
-                global prev_msg
                 if homeworks != [] and message != prev_msg:
                     send_message(bot, message)
                     logger.info('Статус работы отправлен')
@@ -140,7 +137,6 @@ def main():
             except Exception as error:
                 message = f'Сбой в работе программы: {error}'
                 logger.error(message)
-                global prev_error
                 if error != prev_error:
                     bot.send_message(TELEGRAM_CHAT_ID, message)
                     prev_error = error
