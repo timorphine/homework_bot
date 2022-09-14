@@ -109,6 +109,10 @@ def check_tokens():
     return all([TELEGRAM_CHAT_ID, PRACTICUM_TOKEN, TELEGRAM_TOKEN])
 
 
+prev_msg = ''
+prev_error = ''
+
+
 def main():
     """Основная логика работы бота."""
     if check_tokens() is False:
@@ -125,9 +129,7 @@ def main():
                     logger.info('Новые работы отсутствуют')
                 else:
                     message = parse_status(homeworks[0])
-                prev_msg = ''
-                if homeworks == []:
-                    logger.info('Новые работы отсутствуют')
+                global prev_msg
                 if homeworks != [] and message != prev_msg:
                     send_message(bot, message)
                     logger.info('Статус работы отправлен')
@@ -136,9 +138,9 @@ def main():
             except exceptions.TelegramError as e:
                 logger.error(f'Не удалось отправить сообщение: {e}')
             except Exception as error:
-                prev_error = ''
                 message = f'Сбой в работе программы: {error}'
                 logger.error(message)
+                global prev_error
                 if error != prev_error:
                     bot.send_message(TELEGRAM_CHAT_ID, message)
                     prev_error = error
