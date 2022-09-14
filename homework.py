@@ -47,7 +47,7 @@ def send_message(bot, message):
             message
         )
     except telegram.error.TelegramError as mess_err:
-        raise telegram.error.TelegramError(
+        raise exceptions.TelegramError(
             f'Не удалось отправить сообщение: {mess_err}'
         )
 
@@ -123,11 +123,15 @@ def main():
                 homeworks = check_response(response)
                 message = parse_status(homeworks[0])
                 prev_msg = ''
+                if homeworks == []:
+                    logger.info('Новые работы отсутствуют')
                 if homeworks != [] and message != prev_msg:
                     send_message(bot, message)
                     logger.info('Статус работы отправлен')
                     current_timestamp = response['current_date']
                     prev_msg = message
+            except exceptions.TelegramError as e:
+                logger.error(f'Не удалось отправить сообщение: {e}')
             except Exception as error:
                 prev_error = ''
                 message = f'Сбой в работе программы: {error}'
