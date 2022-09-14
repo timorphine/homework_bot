@@ -121,7 +121,10 @@ def main():
             try:
                 response = get_api_answer(current_timestamp)
                 homeworks = check_response(response)
-                message = parse_status(homeworks[0])
+                if homeworks == []:
+                    logger.info('Новые работы отсутствуют')
+                else:
+                    message = parse_status(homeworks[0])
                 prev_msg = ''
                 if homeworks == []:
                     logger.info('Новые работы отсутствуют')
